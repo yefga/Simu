@@ -17,11 +17,11 @@ module Simu
 
       apple = Simu::Apple.new
       apple_devices = apple.get_all_devices
-      apple_rows = apple_devices.map { |d| [d[:name], d[:tag], d[:size]] }
+      apple_rows = apple_devices.map { |d| [d[:name], d[:os_version], d[:tag], d[:size]] }
       
       android = Simu::Android.new
       android_devices = android.get_all_avds
-      android_rows = android_devices.map { |a| [a[:name], a[:state], a[:size]] }
+      android_rows = android_devices.map { |a| [a[:name], a[:api], a[:state], a[:size]] }
       
       spinner.success "Done!"
       puts ""
@@ -29,7 +29,7 @@ module Simu
       if apple_rows.empty?
         Simu::UI.info('No Apple devices or simulators found.')
       else
-        Simu::UI.render_table(title: ' Apple Devices', headings: %w[Name Type Size], rows: apple_rows)
+        Simu::UI.render_table(title: ' Apple Devices', headings: ['Name', 'OS Version', 'Type', 'Size'], rows: apple_rows)
       end
       
       puts ""
@@ -37,7 +37,7 @@ module Simu
       if android_rows.empty?
         Simu::UI.info('No Android emulators found.')
       else
-        Simu::UI.render_table(title: '🤖 Android Emulators', headings: %w[Name State Size], rows: android_rows)
+        Simu::UI.render_table(title: '🤖 Android Emulators', headings: ['Name', 'API Version', 'State', 'Size'], rows: android_rows)
       end
     end
 

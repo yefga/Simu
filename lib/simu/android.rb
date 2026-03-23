@@ -57,13 +57,21 @@ module Simu
 
         names.map do |name|
           size = 'N/A'
+          api = 'Unknown'
           if avd_dir
             avd_path = File.join(avd_dir, "#{name}.avd")
             bytes = Simu::Utils.dir_size(avd_path)
             size = Simu::Utils.format_size(bytes) if bytes > 0
+
+            ini_path = File.join(ENV['HOME'], '.android', 'avd', "#{name}.ini")
+            if File.exist?(ini_path)
+              content = File.read(ini_path)
+              match = content.match(/^target=android-(\d+)/)
+              api = match[1] if match
+            end
           end
 
-          { name: name, state: 'Ready', size: size }
+          { name: name, api: api, state: 'Ready', size: size }
         end
       end
     end
@@ -71,30 +79,33 @@ module Simu
     desc 'list', 'List available Android emulators'
     def list
       avds = get_all_avds
-      rows = avds.map { |a| [a[:name], a[:state], a[:size]] }
+      rows = avds.map { |a| [a[:name], a[:api], a[:state], a[:size]] }
 
       if rows.empty?
         Simu::UI.info('No Android emulators found.')
       else
-        Simu::UI.render_table(title: 'Available Android Emulators', headings: %w[Name State Size], rows: rows)
+        Simu::UI.render_table(title: 'Available Android Emulators', headings: ['Name', 'API Version', 'State', 'Size'], rows: rows)
       end
     end
 
     desc 'run [AVD_NAME]', 'Run a specific Android emulator'
     def run_device(avd_name = nil)
-      avds = get_all_avds.map { |avd| avd[:name] }
+      spinner = TTY::Spinner.new("[:spinner] Fetching Android emulators...", format: :classic)
+      spinner.auto_spin
+      avds = get_all_avds
+      spinner.success "Done!\n"
 
       if avd_name.nil?
-        choices = avds.map { |avd| { name: avd, value: avd } }
+        choices = avds.map { |avd| { name: "#{avd[:name]} (API #{avd[:api]})", value: avd[:name] } }
         Simu::UI.error('No available Android emulators found.') if choices.empty?
 
         selected = Simu::UI.prompt.select('Choose an Android emulator to run:', choices, per_page: 15)
         boot_emulator(selected)
       else
-        target = avds.find { |a| a.downcase.gsub(/\s+/, '') == avd_name.downcase.gsub(/\s+/, '') }
+        target = avds.find { |a| a[:name].downcase.gsub(/\s+/, '') == avd_name.downcase.gsub(/\s+/, '') }
 
         if target
-          boot_emulator(target)
+          boot_emulator(target[:name])
         else
           Simu::UI.error("Could not find Android emulator matching '#{avd_name}'")
         end

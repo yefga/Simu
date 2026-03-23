@@ -46,10 +46,11 @@ module Simu
 
           next if line.strip.empty? || line.include?('xctrace')
 
-          match = line.match(/^(.*?)\s+\((.*?)\)\s+\((.*?)\)/)
+          match = line.match(/^(.*?)\s+(?:\((.*?)\)\s+)?\(([\w-]+)\)$/)
           next unless match
 
           name = match[1].strip
+          os_version = match[2]&.strip || 'Unknown'
           device_id = match[3].strip
 
           tag = 'Simulator'
@@ -62,7 +63,7 @@ module Simu
             size = Simu::Utils.format_size(sim_sizes[device_id])
           end
 
-          devices << { name: name, tag: tag, id: device_id, size: size }
+          devices << { name: name, os_version: os_version, tag: tag, id: device_id, size: size }
         end
         
         devices
@@ -72,12 +73,12 @@ module Simu
     desc 'list', 'List available Apple devices and simulators'
     def list
       devices = get_all_devices
-      rows = devices.map { |d| [d[:name], d[:tag], d[:id], d[:size]] }
+      rows = devices.map { |d| [d[:name], d[:os_version], d[:tag], d[:id], d[:size]] }
 
       if rows.empty?
         Simu::UI.info('No Apple devices or simulators found.')
       else
-        Simu::UI.render_table(title: 'Available Apple Devices', headings: %w[Name Type Identifier Size], rows: rows)
+        Simu::UI.render_table(title: 'Available Apple Devices', headings: ['Name', 'OS Version', 'Type', 'Identifier', 'Size'], rows: rows)
       end
     end
 
@@ -104,11 +105,14 @@ module Simu
     def run_device(device_name = nil, os_version = nil)
       Simu::Setup.ensure_apple_tools!
 
-      devices = fetch_apple_devices
+      spinner = TTY::Spinner.new("[:spinner] Fetching Apple devices...", format: :classic)
+      spinner.auto_spin
+      devices = get_all_devices
+      spinner.success "Done!\n"
 
       if device_name.nil?
         choices = devices.map do |d|
-          { name: "#{d[:name]} (#{d[:os_version] || 'N/A'}) - #{d[:type]}", value: d }
+          { name: "#{d[:name]} (#{d[:os_version]}) - #{d[:tag]}", value: d }
         end
 
         Simu::UI.error('No available Apple devices or simulators found.') if choices.empty?
@@ -118,74 +122,40 @@ module Simu
         handle_selection(selected)
       else
         target = devices.find do |d|
-          name_match = d[:name].downcase.gsub(/\s+/, '') == device_name.downcase.gsub(/\s+/, '')
-          version_match = os_version.nil? || (d[:os_version] && d[:os_version].downcase.gsub(/[^0-9]/,
-                                                                                             '') == os_version.downcase.gsub(
-                                                                                               /[^0-9]/, ''
-                                                                                             ))
+          # Match precisely by UDID
+          next true if d[:id].downcase == device_name.downcase
+
+          # Fuzzy match name
+          clean_name = device_name.downcase.gsub(/[^a-z0-9]/, '')
+          actual_name_clean = d[:name].downcase.gsub(/[^a-z0-9]/, '')
+          name_match = actual_name_clean.include?(clean_name)
+
+          # Fuzzy match OS version
+          if os_version
+            clean_os = os_version.downcase.gsub(/[^0-9]/, '')
+            actual_os_clean = d[:os_version].downcase.gsub(/[^0-9]/, '')
+            version_match = actual_os_clean.include?(clean_os)
+          else
+            version_match = true
+          end
+
           name_match && version_match
         end
 
         if target
           handle_selection(target)
         else
-          Simu::UI.error("Could not find Apple device matching '#{device_name}' '#{os_version}'")
+          Simu::UI.error("Could not find Apple device matching '#{device_name}' #{os_version}")
         end
       end
     end
 
     private
 
-    def fetch_apple_devices
-      output = `xcrun xctrace list devices 2>/dev/null`
-      devices = []
-      current_section = nil
-
-      output.each_line do |line|
-        line.strip!
-        next if line.empty?
-
-        if line.start_with?('==')
-          current_section = line.gsub('==', '').strip
-          next
-        end
-
-        # Parse Device Line
-        # Example 1: Yefga’s MacBook Pro (9314A7DA-BEDD-5399-9EE3-CF2AD26CFCEC)
-        # Example 2: Yefga’s Apple Watch (26.0) (00008310-0005535121FBA01E)
-        # Example 3: SE 3 - 16.0 Simulator (16.0) (0847094C-8E21-4F73-B245-00674FC49DB6)
-
-        # Regex to match: Name (optional OS) (UDID)
-        # UDID is always at the end in parentheses.
-        next unless line =~ /^(.*?)\s+(?:\((.*?)\)\s+)?\(([\w-]+)\)$/
-
-        name = ::Regexp.last_match(1).strip
-        os = ::Regexp.last_match(2)
-        udid = ::Regexp.last_match(3)
-
-        type = if current_section == 'Simulators'
-                 'Simulator'
-               elsif current_section == 'Devices Offline'
-                 'Physical (Offline)'
-               else
-                 'Physical'
-               end
-
-        devices << {
-          name: name,
-          os_version: os,
-          udid: udid,
-          type: type
-        }
-      end
-
-      devices
-    end
-
     def handle_selection(device)
-      if device[:type] == 'Simulator'
-        boot_simulator(device[:udid])
-      elsif device[:type] == 'Physical (Offline)'
+      if device[:tag] == 'Simulator'
+        boot_simulator(device[:id])
+      elsif device[:tag] == 'Physical (Offline)'
         Simu::UI.error("Device '#{device[:name]}' is currently offline.")
       else
         Simu::UI.info("Device '#{device[:name]}' is a physical device and is already running.")
