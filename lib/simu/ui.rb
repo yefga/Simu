@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "pastel"
-require "tty-prompt"
-require "terminal-table"
+require 'pastel'
+require 'tty-prompt'
+require 'terminal-table'
 
 module Simu
   class UI
@@ -26,6 +26,14 @@ module Simu
 
       def info(message)
         puts pastel.cyan(message)
+      end
+
+      def doctor_success(message)
+        puts pastel.green("[✓] #{message}")
+      end
+
+      def doctor_error(message)
+        puts pastel.red("[✗] #{message}")
       end
 
       def render_table(title:, headings:, rows:)
