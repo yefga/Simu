@@ -12,12 +12,19 @@ module Simu
 
     desc 'list', 'List all available simulators and emulators installed on this mac'
     def list
-      Simu::UI.info('Fetching devices across all platforms...')
-      puts ""
+      spinner = TTY::Spinner.new("[:spinner] Fetching devices across all platforms...", format: :classic)
+      spinner.auto_spin
 
       apple = Simu::Apple.new
       apple_devices = apple.get_all_devices
       apple_rows = apple_devices.map { |d| [d[:name], d[:tag], d[:size]] }
+      
+      android = Simu::Android.new
+      android_devices = android.get_all_avds
+      android_rows = android_devices.map { |a| [a[:name], a[:state], a[:size]] }
+      
+      spinner.success "Done!"
+      puts ""
       
       if apple_rows.empty?
         Simu::UI.info('No Apple devices or simulators found.')
@@ -26,10 +33,6 @@ module Simu
       end
       
       puts ""
-      
-      android = Simu::Android.new
-      android_devices = android.get_all_avds
-      android_rows = android_devices.map { |a| [a[:name], a[:state], a[:size]] }
       
       if android_rows.empty?
         Simu::UI.info('No Android emulators found.')

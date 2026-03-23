@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = 'simu'
-  spec.version       = '0.1.1'
+  spec.version       = '0.1.2'
   spec.authors       = ['yefga']
   spec.email         = ['yefga@users.noreply.github.com']
   spec.summary       = 'CLI tool to manage iOS simulators and Android emulators on macOS.'
@@ -20,4 +20,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'terminal-table', '~> 3.0'
   spec.add_dependency 'thor', '~> 1.2'
   spec.add_dependency 'tty-prompt', '~> 0.23'
+  spec.add_dependency 'tty-spinner', '~> 0.9'
 end

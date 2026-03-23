@@ -1,18 +1,17 @@
 # frozen_string_literal: true
 
-require 'mkmf'
-
 module Simu
   class Setup
     class << self
       def ensure_apple_tools!
-        return if find_executable('xcrun')
+        return if system('which xcrun > /dev/null 2>&1')
 
         Simu::UI.error("xcrun not found. Please install Xcode Command Line Tools by running 'xcode-select --install'")
+        exit 1
       end
 
       def ensure_android_tools!
-        return if find_executable('emulator')
+        return if system('which emulator > /dev/null 2>&1')
 
         prompt_android_install
       end

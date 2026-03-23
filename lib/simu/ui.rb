@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'pastel'
+require 'tty-spinner'
 require 'tty-prompt'
 require 'terminal-table'
 
