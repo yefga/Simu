@@ -3,4 +3,16 @@
 
 require_relative '../lib/simu'
 
-Simu::CLI.start(ARGV)
+begin
+  Simu::CLI.start(ARGV)
+rescue Interrupt
+  puts "\nAborted."
+  exit(0)
+rescue StandardError => e
+  if e.class.name == 'TTY::Reader::InputInterrupt'
+    puts "\nAborted."
+    exit(0)
+  else
+    raise e
+  end
+end

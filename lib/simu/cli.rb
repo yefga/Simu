@@ -4,6 +4,8 @@ require 'thor'
 
 module Simu
   class CLI < Thor
+    remove_command(:tree) if respond_to?(:remove_command)
+
     def self.exit_on_failure?
       true
     end

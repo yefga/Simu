@@ -23,29 +23,18 @@ bundle install
 ```
 
 ## Usage
-List commands:
-```bash
-simu apple list
-simu android list
-```
+### Apple
+* `simu apple list` - Display Apple simulators explicitly.
+* `simu apple run` - Activate an interactive selection menu to graphically choose which Simulator to boot!
+* `simu apple run [NAME]` - Fuzzy-match a device explicitly (E.g. `simu apple run iphone15` to boot into `iPhone 15 Simulator`).
+* `simu apple launch [PATH]` - Interactively select a simulator and compile an `.xcworkspace`, `.xcodeproj`, or `.app` directly onto it! Assumes `.` (current directory).
+* `simu apple doctor` - Check for iOS CLI dependencies natively on your Mac.
 
-Run devices interactively:
-```bash
-simu apple run
-simu android run
-```
-
-Run specific devices:
-```bash
-simu apple run "iPhone 16" iOS26
-simu android run Pixel_5
-```
-
-Validate infrastructure health:
-```bash
-simu apple doctor
-simu android doctor
-```
+### Android
+* `simu android list` - Display Android environments alongside API versions.
+* `simu android run` - Open an interactive selection menu.
+* `simu android run [NAME]` - Fuzzy-select an explicit named device.
+* `simu android launch [PATH]` - Interactively select an emulator, and execute `./gradlew assembleDebug` to natively build and launch the project! Assumes `.` (current directory).tor`)
 
 ## Requirements
 - Ruby

@@ -4,6 +4,8 @@ require 'json'
 
 module Simu
   class Apple < Thor
+    remove_command(:tree) if respond_to?(:remove_command)
+
     def self.exit_on_failure?
       true
     end
@@ -150,7 +152,117 @@ module Simu
       end
     end
 
+    map 'launch' => :launch_path
+
+    desc 'launch [PATH]', 'Build and run an iOS project or .app on a specific simulator'
+    def launch_path(path = '.')
+      path = File.expand_path(path)
+      unless File.exist?(path)
+        Simu::UI.error("Path not found: #{path}")
+        return
+      end
+
+      devices = get_all_devices
+      choices = devices.map { |d| { name: "#{d[:name]} (#{d[:os_version]}) - #{d[:tag]}", value: d } }
+      Simu::UI.error('No available Apple devices or simulators found.') if choices.empty?
+
+      selected_device = Simu::UI.prompt.select('Choose an Apple device/simulator to launch on:', choices, per_page: 15)
+      
+      udid = selected_device[:id]
+
+      if selected_device[:tag] == 'Simulator'
+        system("xcrun simctl boot #{udid} 2>/dev/null")
+        system("open -a Simulator")
+      end
+
+      if path.end_with?('.app')
+        launch_app(path, udid)
+      else
+        build_and_launch_ios_project(path, udid)
+      end
+    end
+
     private
+
+    def launch_app(app_path, udid)
+      spinner = TTY::Spinner.new("[:spinner] Installing app to simulator...", format: :classic)
+      spinner.auto_spin
+      system("xcrun simctl install #{udid} '#{app_path}'")
+      spinner.success "Installed!"
+
+      bundle_id = `osascript -e 'id of app "#{app_path}"' 2>/dev/null`.strip
+      if bundle_id.empty?
+        plist_path = File.join(app_path, 'Info.plist')
+        bundle_id = `plutil -extract CFBundleIdentifier raw "#{plist_path}" 2>/dev/null`.strip if File.exist?(plist_path)
+      end
+
+      if bundle_id && !bundle_id.empty?
+        Simu::UI.info("Launching #{bundle_id}...")
+        system("xcrun simctl launch #{udid} #{bundle_id}")
+        Simu::UI.success("Launch complete!")
+      else
+        Simu::UI.error("Could not determine Bundle ID for #{app_path}")
+      end
+    end
+
+    def build_and_launch_ios_project(project_path, udid)
+      require 'tmpdir'
+      require 'json'
+      
+      derived_data = Dir.mktmpdir("simu-derivedData")
+      
+      spinner = TTY::Spinner.new("[:spinner] Building iOS project (this may take a while)...", format: :classic)
+      spinner.auto_spin
+
+      workspace = Dir.glob(File.join(project_path, '*.xcworkspace')).first
+      project = Dir.glob(File.join(project_path, '*.xcodeproj')).first
+      
+      unless workspace || project
+        spinner.error "Failed!"
+        Simu::UI.error("No .xcworkspace or .xcodeproj found in #{project_path}")
+        return
+      end
+
+      schemes_output = workspace ? `xcodebuild -workspace '#{workspace}' -list -json 2>/dev/null` : `xcodebuild -project '#{project}' -list -json 2>/dev/null`
+      scheme = nil
+      begin
+        parsed = JSON.parse(schemes_output)
+        scheme = parsed['workspace']['schemes'].first if parsed['workspace']
+        scheme = parsed['project']['schemes'].first if parsed['project']
+      rescue StandardError => e
+        Simu::UI.error("Could not parse scheme: #{e.message}")
+        nil
+      end
+      
+      unless scheme
+        spinner.error "Failed!"
+        Simu::UI.error("Could not detect any Xcode schemes in #{project_path}.")
+        return
+      end
+
+      cmd = if workspace
+              "xcodebuild -workspace '#{workspace}' -scheme '#{scheme}' -destination 'id=#{udid}' -derivedDataPath '#{derived_data}' build >/dev/null 2>&1"
+            else
+              "xcodebuild -project '#{project}' -scheme '#{scheme}' -destination 'id=#{udid}' -derivedDataPath '#{derived_data}' build >/dev/null 2>&1"
+            end
+
+      if system(cmd)
+        spinner.success "Built successfully!"
+        
+        # In DerivedData, Simulator builds go to Build/Products/*-iphonesimulator/*.app
+        app_path = Dir.glob(File.join(derived_data, 'Build', 'Products', '*-iphonesimulator', '*.app')).first
+        if app_path
+          launch_app(app_path, udid)
+        else
+          Simu::UI.error("Build succeeded but could not locate .app in DerivedData.")
+        end
+      else
+        spinner.error "Build Failed!"
+        Simu::UI.error("xcodebuild returned a non-zero exit code. Run manually to see logs:\n#{cmd.gsub(' >/dev/null 2>&1', '')}")
+      end
+    ensure
+      FileUtils.rm_rf(derived_data) if derived_data && Dir.exist?(derived_data)
+    end
 
     def handle_selection(device)
       if device[:tag] == 'Simulator'

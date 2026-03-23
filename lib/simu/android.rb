@@ -2,6 +2,8 @@
 
 module Simu
   class Android < Thor
+    remove_command(:tree) if respond_to?(:remove_command)
+
     def self.exit_on_failure?
       true
     end
@@ -112,7 +114,96 @@ module Simu
       end
     end
 
+    map 'launch' => :launch_path
+
+    desc 'launch [PATH]', 'Build and run an Android project or .apk on a specific emulator'
+    def launch_path(path = '.')
+      path = File.expand_path(path)
+      unless File.exist?(path)
+        Simu::UI.error("Path not found: #{path}")
+        return
+      end
+
+      avds = get_all_avds
+      choices = avds.map { |avd| { name: "#{avd[:name]} (API #{avd[:api]})", value: avd[:name] } }
+      Simu::UI.error('No available Android emulators found.') if choices.empty?
+
+      selected_avd = Simu::UI.prompt.select('Choose an Android emulator to launch on:', choices, per_page: 15)
+
+      boot_emulator(selected_avd)
+      wait_for_emulator_boot
+
+      if path.end_with?('.apk')
+        launch_apk(path)
+      else
+        build_and_launch_android_project(path)
+      end
+    end
+
     private
+
+    def wait_for_emulator_boot
+      spinner = TTY::Spinner.new("[:spinner] Waiting for Android emulator to finish booting...", format: :classic)
+      spinner.auto_spin
+      
+      system("adb wait-for-device")
+      
+      loop do
+        boot_anim = `adb shell getprop init.svc.bootanim 2>/dev/null`.strip
+        break if boot_anim == 'stopped'
+        sleep 1
+      end
+      
+      spinner.success "Ready!"
+    end
+
+    def launch_apk(apk_path)
+      spinner = TTY::Spinner.new("[:spinner] Installing APK...", format: :classic)
+      spinner.auto_spin
+      success = system("adb install -r -t '#{apk_path}' >/dev/null 2>&1")
+      unless success
+        spinner.error "Install failed!"
+        return
+      end
+      spinner.success "Installed!"
+
+      aapt_out = `aapt dump badging '#{apk_path}' 2>/dev/null | grep package:`
+      match = aapt_out.match(/name='([\w.]+)'/)
+      if match
+        pkg = match[1]
+        Simu::UI.info("Launching #{pkg}...")
+        system("adb shell monkey -p #{pkg} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1")
+        Simu::UI.success("Launch complete!")
+      else
+        Simu::UI.error("Could not extract package name from APK.")
+      end
+    end
+
+    def build_and_launch_android_project(project_path)
+      gradlew = File.join(project_path, 'gradlew')
+      unless File.exist?(gradlew)
+        Simu::UI.error("No gradlew wrapper found in #{project_path}")
+        return
+      end
+
+      spinner = TTY::Spinner.new("[:spinner] Building Android project via Gradle...", format: :classic)
+      spinner.auto_spin
+
+      Dir.chdir(project_path) do
+        success = system("./gradlew assembleDebug >/dev/null 2>&1")
+        if success
+          spinner.success "Built successfully!"
+          apk = Dir.glob(File.join("app", "build", "outputs", "apk", "debug", "*.apk")).first || Dir.glob(File.join("**", "build", "outputs", "apk", "**", "*.apk")).first
+          if apk
+            launch_apk(File.expand_path(apk))
+          else
+            Simu::UI.error("Could not find generated APK in build/outputs.")
+          end
+        else
+          spinner.error "Build Failed!"
+        end
+      end
+    end
 
     def emulator_bin
       android_home = ENV.fetch('ANDROID_HOME', ENV.fetch('ANDROID_SDK_ROOT', nil))
