@@ -11,7 +11,7 @@ A concise, interactive CLI tool to list and run iOS Simulators and Android Emula
 
 The recommended way to install `simu` is via Homebrew:
 ```bash
-brew tap yefga/simu
+brew tap yefga/tap
 brew install simu
 ```
 
