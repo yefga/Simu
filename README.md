@@ -8,31 +8,43 @@ A concise, interactive CLI tool to list and run iOS Simulators and Android Emula
 - **Auto-Diagnostics**: Detects missing Xcode Command Line Tools or Android SDKs and provides copy-paste installation instructions.
 
 ## Installation
-Install locally via source:
+
+The recommended way to install `simu` is via Homebrew:
 ```bash
-git clone https://github.com/example/simu.git
-cd simu
+brew tap yefga/simu
+brew install simu
+```
+
+Alternatively, install locally via source:
+```bash
+git clone https://github.com/yefga/Simu.git
+cd Simu
 bundle install
-chmod +x bin/simu
 ```
 
 ## Usage
 List commands:
 ```bash
-simu ios list
+simu apple list
 simu android list
 ```
 
 Run devices interactively:
 ```bash
-simu ios run
+simu apple run
 simu android run
 ```
 
 Run specific devices:
 ```bash
-simu ios run "iPhone 16" iOS26
+simu apple run "iPhone 16" iOS26
 simu android run Pixel_5
+```
+
+Validate infrastructure health:
+```bash
+simu apple doctor
+simu android doctor
 ```
 
 ## Requirements
