@@ -4,6 +4,10 @@ require 'json'
 
 module Simu
   class Apple < Thor
+    def self.exit_on_failure?
+      true
+    end
+
     map %w[--help -h] => :help
 
     no_commands do

@@ -1,3 +1,7 @@
+find_executable: checking for xcrun... -------------------- yes
+
+--------------------
+
 find_executable: checking for emulator... -------------------- yes
 
 --------------------

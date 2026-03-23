@@ -4,6 +4,10 @@ require 'thor'
 
 module Simu
   class CLI < Thor
+    def self.exit_on_failure?
+      true
+    end
+
     map %w[--help -h] => :help
 
     desc 'list', 'List all available simulators and emulators installed on this mac'

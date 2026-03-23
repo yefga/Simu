@@ -2,6 +2,10 @@
 
 module Simu
   class Android < Thor
+    def self.exit_on_failure?
+      true
+    end
+
     map %w[--help -h] => :help
 
     desc 'doctor', 'Check Android emulator dependencies'
