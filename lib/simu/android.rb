@@ -4,23 +4,6 @@ module Simu
   class Android < Thor
     map %w[--help -h] => :help
 
-    desc 'list', 'List available Android emulators'
-    def list
-      Simu::Setup.ensure_android_tools!
-
-      # emulator -list-avds returns a highly simple list of names
-      output = `#{emulator_bin} -list-avds 2>/dev/null`
-      avds = output.split("\n").map(&:chomp).reject(&:empty?)
-
-      rows = avds.map { |avd| [avd, 'Ready'] }
-
-      Simu::UI.render_table(
-        title: 'Available Android Emulators',
-        headings: %w[Name State],
-        rows: rows
-      )
-    end
-
     desc 'doctor', 'Check Android emulator dependencies'
     def doctor
       Simu::UI.info('Android Doctor Summary:')
@@ -58,12 +41,44 @@ module Simu
 
     map 'run' => :run_device
 
+    no_commands do
+      def get_all_avds
+        Simu::Setup.ensure_android_tools!
+
+        output = `#{emulator_bin} -list-avds 2>/dev/null`
+        names = output.split("\n").map(&:chomp).reject(&:empty?)
+
+        android_home = ENV.fetch('ANDROID_HOME', ENV.fetch('ANDROID_SDK_ROOT', nil))
+        avd_dir = android_home ? File.join(ENV['HOME'], '.android', 'avd') : nil
+
+        names.map do |name|
+          size = 'N/A'
+          if avd_dir
+            avd_path = File.join(avd_dir, "#{name}.avd")
+            bytes = Simu::Utils.dir_size(avd_path)
+            size = Simu::Utils.format_size(bytes) if bytes > 0
+          end
+
+          { name: name, state: 'Ready', size: size }
+        end
+      end
+    end
+
+    desc 'list', 'List available Android emulators'
+    def list
+      avds = get_all_avds
+      rows = avds.map { |a| [a[:name], a[:state], a[:size]] }
+
+      if rows.empty?
+        Simu::UI.info('No Android emulators found.')
+      else
+        Simu::UI.render_table(title: 'Available Android Emulators', headings: %w[Name State Size], rows: rows)
+      end
+    end
+
     desc 'run [AVD_NAME]', 'Run a specific Android emulator'
     def run_device(avd_name = nil)
-      Simu::Setup.ensure_android_tools!
-
-      output = `#{emulator_bin} -list-avds 2>/dev/null`
-      avds = output.split("\n").map(&:chomp).reject(&:empty?)
+      avds = get_all_avds.map { |avd| avd[:name] }
 
       if avd_name.nil?
         choices = avds.map { |avd| { name: avd, value: avd } }

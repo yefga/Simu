@@ -6,21 +6,75 @@ module Simu
   class Apple < Thor
     map %w[--help -h] => :help
 
+    no_commands do
+      def get_all_devices
+        Simu::Setup.ensure_apple_tools!
+        require 'json'
+        
+        devices = []
+
+        sim_sizes = {}
+        begin
+          json_out = `xcrun simctl list devices -j 2>/dev/null`
+          data = JSON.parse(json_out)
+          data['devices'].each do |_os, sims|
+            sims.each do |sim|
+              sim_sizes[sim['udid']] = sim['dataPathSize'] if sim['dataPathSize']
+            end
+          end
+        rescue StandardError
+          # ignore parse errors
+        end
+
+        output = `xcrun xctrace list devices 2>&1`
+        lines = output.split("\n")
+        
+        parsing_devices = false
+        
+        lines.each do |line|
+          if line.start_with?('== Devices ==')
+            parsing_devices = true
+            next
+          elsif line.start_with?('== Simulators ==')
+            parsing_devices = false
+            next
+          end
+
+          next if line.strip.empty? || line.include?('xctrace')
+
+          match = line.match(/^(.*?)\s+\((.*?)\)\s+\((.*?)\)/)
+          next unless match
+
+          name = match[1].strip
+          device_id = match[3].strip
+
+          tag = 'Simulator'
+          if parsing_devices
+            tag = name.include?('Offline') ? 'Physical (Offline)' : 'Physical'
+          end
+
+          size = 'N/A'
+          if tag == 'Simulator' && sim_sizes[device_id]
+            size = Simu::Utils.format_size(sim_sizes[device_id])
+          end
+
+          devices << { name: name, tag: tag, id: device_id, size: size }
+        end
+        
+        devices
+      end
+    end
+
     desc 'list', 'List available Apple devices and simulators'
     def list
-      Simu::Setup.ensure_apple_tools!
+      devices = get_all_devices
+      rows = devices.map { |d| [d[:name], d[:tag], d[:id], d[:size]] }
 
-      devices = fetch_apple_devices
-
-      rows = devices.map do |d|
-        [d[:name], d[:os_version] || 'N/A', d[:type], d[:udid]]
+      if rows.empty?
+        Simu::UI.info('No Apple devices or simulators found.')
+      else
+        Simu::UI.render_table(title: 'Available Apple Devices', headings: %w[Name Type Identifier Size], rows: rows)
       end
-
-      Simu::UI.render_table(
-        title: 'Available Apple Devices & Simulators',
-        headings: ['Name', 'OS Version', 'Type', 'UDID'],
-        rows: rows
-      )
     end
 
     desc 'doctor', 'Check Apple simulator dependencies'
