@@ -5,8 +5,8 @@ Gem::Specification.new do |spec|
   spec.version       = '0.3.0'
   spec.authors       = ['yefga']
   spec.email         = ['yefga@users.noreply.github.com']
-  spec.summary       = 'CLI tool to manage iOS simulators and Android emulators on macOS.'
-  spec.description   = 'simu provides an easy way to list and run iOS and Android simulators using a modern terminal UI.'
+  spec.summary       = 'CLI tool to manage Apple simulators and Android emulators.'
+  spec.description   = 'simu runs Apple simulators and provisions Android emulators without Android Studio.'
   spec.homepage      = 'https://github.com/yefga/Simu'
   spec.license       = 'MIT'
   spec.required_ruby_version = '>= 2.6.0'

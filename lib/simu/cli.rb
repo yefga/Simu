@@ -12,34 +12,41 @@ module Simu
 
     map %w[--help -h] => :help
 
-    desc 'list', 'List all available simulators and emulators installed on this mac'
+    desc 'list', 'List all available simulators and emulators on this host'
     def list
-      spinner = TTY::Spinner.new("[:spinner] Fetching devices across all platforms...", format: :classic)
+      spinner = TTY::Spinner.new('[:spinner] Fetching devices across all platforms...', format: :classic)
       spinner.auto_spin
 
-      apple = Simu::Apple.new
-      apple_devices = apple.get_all_devices
-      apple_rows = apple_devices.map { |d| [d[:name], d[:os_version], d[:tag], d[:size]] }
-      
+      apple_rows = []
+      if Simu::AndroidToolchain.host.os == :macos
+        apple = Simu::Apple.new
+        apple_devices = apple.get_all_devices
+        apple_rows = apple_devices.map { |d| [d[:name], d[:os_version], d[:tag], d[:size]] }
+      end
+
       android = Simu::Android.new
       android_devices = android.get_all_avds
       android_rows = android_devices.map { |a| [a[:name], a[:api], a[:state], a[:size]] }
-      
-      spinner.success "Done!"
-      puts ""
-      
-      if apple_rows.empty?
+
+      spinner.success 'Done!'
+      puts
+
+      if Simu::AndroidToolchain.host.os != :macos
+        Simu::UI.info('Apple simulators are unavailable on this host; showing Android emulators only.')
+      elsif apple_rows.empty?
         Simu::UI.info('No Apple devices or simulators found.')
       else
-        Simu::UI.render_table(title: ' Apple Devices', headings: ['Name', 'OS Version', 'Type', 'Size'], rows: apple_rows)
+        headings = ['Name', 'OS Version', 'Type', 'Size']
+        Simu::UI.render_table(title: ' Apple Devices', headings: headings, rows: apple_rows)
       end
-      
-      puts ""
-      
+
+      puts
+
       if android_rows.empty?
         Simu::UI.info('No Android emulators found.')
       else
-        Simu::UI.render_table(title: '🤖 Android Emulators', headings: ['Name', 'API Version', 'State', 'Size'], rows: android_rows)
+        headings = ['Name', 'API Version', 'State', 'Size']
+        Simu::UI.render_table(title: '🤖 Android Emulators', headings: headings, rows: android_rows)
       end
     end
 
