@@ -88,6 +88,11 @@ module Simu
     def doctor
       Simu::UI.info('Apple Doctor Summary:')
 
+      unless Simu::AndroidToolchain.host.os == :macos
+        Simu::UI.doctor_error('Apple simulators are available only on macOS.')
+        return
+      end
+
       if system('which xcrun > /dev/null 2>&1')
         Simu::UI.doctor_success('Xcode Command Line Tools (xcrun) is installed')
       else

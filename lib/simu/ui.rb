@@ -29,6 +29,10 @@ module Simu
         puts pastel.cyan(message)
       end
 
+      def warning(message)
+        puts pastel.yellow(message)
+      end
+
       def doctor_success(message)
         puts pastel.green("[✓] #{message}")
       end
