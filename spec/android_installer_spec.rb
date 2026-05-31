@@ -4,38 +4,49 @@ require 'spec_helper'
 require 'digest'
 
 RSpec.describe Simu::AndroidInstaller do
-  let(:toolchain) { Simu::AndroidToolchain.managed }
+  let(:toolchain) { Simu::AndroidToolchain.for_sdk('/opt/android/sdk') }
   let(:prompt) { instance_double(TTY::Prompt) }
 
   describe '#setup!' do
-    it 'installs selected packages and creates an AVD in the managed setup' do
+    it 'installs the SDK packages and creates an AVD in the global SDK location' do
       host = Simu::AndroidToolchain::Host.new(:macos, :arm64)
-      managed = instance_double(
+      sdk = instance_double(
         Simu::AndroidToolchain,
-        jdk?: true,
-        sdkmanager_bin: '/managed/sdkmanager',
-        usable?: true,
+        java_home: '/opt/jdk21',
+        sdk_root: '/opt/android/sdk',
+        sdkmanager_bin: '/opt/android/sdk/cmdline-tools/latest/bin/sdkmanager',
+        usable?: false,
         acceleration_status: [true, 'available']
       )
-      installer = described_class.new(prompt: prompt, host: host, toolchain: managed)
+      installer = described_class.new(prompt: prompt, host: host, toolchain: sdk)
       image = 'system-images;android-36;google_apis;arm64-v8a'
-      allow(Simu::AndroidToolchain).to receive(:external).and_return(nil)
       allow(prompt).to receive(:yes?).and_return(false)
-      allow(File).to receive(:executable?).with('/managed/sdkmanager').and_return(true)
+      allow(File).to receive(:executable?).and_call_original
+      allow(File).to receive(:executable?).with(sdk.sdkmanager_bin).and_return(true)
       allow(installer).to receive(:preflight!)
-      allow(installer).to receive(:confirm_downloads!)
+      allow(installer).to receive(:confirm_install!)
       allow(installer).to receive(:prepare_directories!)
       allow(installer).to receive(:accept_licenses!)
       allow(installer).to receive(:install_sdk_packages)
       allow(installer).to receive(:select_system_image).and_return(image)
       allow(installer).to receive(:select_device_profile).and_return('pixel_9')
       allow(installer).to receive(:create_or_reuse_avd).and_return('simu_pixel_9_api_36')
+      allow(sdk).to receive(:usable?).and_return(false, true)
       allow(Simu::UI).to receive(:success)
 
-      expect(installer.setup!).to eq(managed)
+      expect(installer.setup!).to eq(sdk)
       expect(installer).to have_received(:install_sdk_packages).with(*described_class::CORE_PACKAGES)
       expect(installer).to have_received(:install_sdk_packages).with(image)
       expect(installer).to have_received(:create_or_reuse_avd).with(image, 'pixel_9')
+    end
+
+    it 'aborts with guidance when no adequate JDK is available' do
+      host = Simu::AndroidToolchain::Host.new(:macos, :arm64)
+      sdk = instance_double(Simu::AndroidToolchain, java_home: nil)
+      installer = described_class.new(prompt: prompt, host: host, toolchain: sdk)
+      allow(Simu::UI).to receive(:error) { |message| raise message }
+
+      expect { installer.setup! }.to raise_error(/brew install openjdk/)
     end
   end
 
@@ -79,19 +90,6 @@ RSpec.describe Simu::AndroidInstaller do
       name = installer.send(:avd_name, 'system-images;android-36;google_apis;arm64-v8a', 'Pixel 9 Pro')
 
       expect(name).to eq('simu_pixel_9_pro_api_36')
-    end
-  end
-
-  describe 'provisioning Java runtime' do
-    it 'requests the current LTS Temurin JDK so Gradle builds are supported' do
-      host = Simu::AndroidToolchain::Host.new(:macos, :arm64)
-      installer = described_class.new(prompt: prompt, host: host, toolchain: toolchain)
-
-      url = installer.send(:temurin_metadata_url)
-
-      expect(url).to include('/assets/latest/25/')
-      expect(url).to include('image_type=jdk')
-      expect(url).to include('architecture=aarch64')
     end
   end
 
