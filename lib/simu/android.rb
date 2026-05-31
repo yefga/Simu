@@ -62,13 +62,28 @@ module Simu
         Simu::UI.doctor_error("Emulator acceleration could not be verified: #{detail}")
       end
 
-      managed_java = Simu::AndroidToolchain.managed.java_bin
-      if managed_java
-        Simu::UI.doctor_success("Private setup Java runtime is available at #{managed_java}")
+      managed = Simu::AndroidToolchain.managed
+      if managed.jdk?
+        Simu::UI.doctor_success("Private JDK is available at #{managed.java_home} (Gradle builds supported)")
+      elsif managed.java_bin
+        Simu::UI.doctor_error('Managed Java is a JRE without javac; Gradle builds (npm run android, ' \
+                              'flutter run) will fail. Re-run `simu android setup`.')
       else
         Simu::UI.info('Java is not required to boot an existing emulator; setup installs')
-        Simu::UI.info('a private runtime when provisioning is needed.')
+        Simu::UI.info('a private JDK when provisioning is needed.')
       end
+
+      report_global_shell_integration
+    end
+
+    desc 'env', 'Print shell exports for the managed Android SDK (for eval or non-zsh shells)'
+    def env
+      toolchain = Simu::AndroidToolchain.managed
+      unless toolchain.usable?
+        Simu::UI.error('No Simu-managed Android SDK was found. Run `simu android setup` first.')
+      end
+
+      print Simu::AndroidShellEnv.env_file_contents(toolchain)
     end
 
     desc 'setup', 'Install a private Android emulator environment and create an emulator'
@@ -134,12 +149,14 @@ module Simu
 
     map 'launch' => :launch_path
 
-    desc 'launch [PATH]', 'Build and run an Android project or install an APK on an emulator'
-    def launch_path(path = '.')
-      path = File.expand_path(path)
-      unless File.exist?(path)
-        Simu::UI.error("Path not found: #{path}")
-        return
+    desc 'launch [PATH]', 'Launch an emulator, optionally installing an APK or building a project'
+    def launch_path(path = nil)
+      if path
+        path = File.expand_path(path)
+        unless File.exist?(path)
+          Simu::UI.error("Path not found: #{path}")
+          return
+        end
       end
 
       toolchain = Simu::Setup.ensure_android_tools!
@@ -149,6 +166,8 @@ module Simu
 
       selected_avd = Simu::UI.prompt.select('Choose an Android emulator to launch on:', choices, per_page: 15)
       boot_emulator(toolchain, selected_avd)
+      return unless path
+
       wait_for_emulator_boot(toolchain)
 
       if path.downcase.end_with?('.apk')
@@ -171,6 +190,16 @@ module Simu
     end
 
     private
+
+    def report_global_shell_integration
+      env_file = Simu::AndroidShellEnv.env_file
+      if File.file?(env_file)
+        Simu::UI.doctor_success("Global shell environment is configured: #{env_file}")
+      else
+        Simu::UI.info('Global shell environment is not configured. Re-run `simu android setup` so')
+        Simu::UI.info('`npm run android` and `flutter run` can find this SDK, or run `simu android env`.')
+      end
+    end
 
     def report_archive_tools
       %w[tar unzip].each do |command|

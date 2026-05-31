@@ -72,6 +72,10 @@ module Simu
         File.join(simu_home, 'android', 'runtime')
       end
 
+      def managed_env_file
+        File.join(simu_home, 'android', 'env.sh')
+      end
+
       def managed
         new(sdk_root: managed_sdk_root, avd_home: managed_avd_home, source: :managed)
       end
@@ -189,6 +193,33 @@ module Simu
       home && File.join(home, 'bin', 'java')
     end
 
+    def javac_bin
+      home = java_home
+      home && File.join(home, 'bin', 'javac')
+    end
+
+    # A JRE can boot the emulator, but Gradle (React Native/Flutter builds) needs a
+    # full JDK. Treat the managed runtime as ready only when javac is present.
+    def jdk?
+      executable?(javac_bin)
+    end
+
+    # Ordered environment exported into the user's shell so external toolchains
+    # (`npm run android`, `flutter run`) discover this managed SDK. Managed only.
+    def shell_profile_exports
+      raise 'shell_profile_exports is only available for the managed toolchain' unless managed?
+
+      home = java_home
+      vars = { 'ANDROID_HOME' => sdk_root, 'ANDROID_SDK_ROOT' => sdk_root,
+               'ANDROID_AVD_HOME' => avd_home, 'ANDROID_USER_HOME' => self.class.managed_user_home }
+      vars['JAVA_HOME'] = home if home
+      path_entries = ['platform-tools', 'emulator', File.join('cmdline-tools', 'latest', 'bin')]
+                     .map { |dir| File.join(sdk_root, dir) }
+      path_entries << File.join(home, 'bin') if home
+
+      [vars, path_entries]
+    end
+
     def environment(include_java: false)
       env = {}
       paths = []
@@ -211,6 +242,8 @@ module Simu
       if include_java && java_home
         env['JAVA_HOME'] = java_home
         paths.unshift(File.join(java_home, 'bin'))
+      elsif invalid_inherited_java_home?
+        env['JAVA_HOME'] = nil
       end
 
       env['PATH'] = (paths + [ENV.fetch('PATH', '')]).uniq.join(File::PATH_SEPARATOR) unless paths.empty?
@@ -233,6 +266,11 @@ module Simu
     end
 
     private
+
+    def invalid_inherited_java_home?
+      home = ENV['JAVA_HOME']
+      home && !home.empty? && !executable?(File.join(home, 'bin', 'java'))
+    end
 
     def executable?(path)
       path && File.file?(path) && File.executable?(path)
