@@ -12,7 +12,7 @@ RSpec.describe Simu::AndroidInstaller do
       host = Simu::AndroidToolchain::Host.new(:macos, :arm64)
       managed = instance_double(
         Simu::AndroidToolchain,
-        java_bin: '/managed/java',
+        jdk?: true,
         sdkmanager_bin: '/managed/sdkmanager',
         usable?: true,
         acceleration_status: [true, 'available']
@@ -20,6 +20,7 @@ RSpec.describe Simu::AndroidInstaller do
       installer = described_class.new(prompt: prompt, host: host, toolchain: managed)
       image = 'system-images;android-36;google_apis;arm64-v8a'
       allow(Simu::AndroidToolchain).to receive(:external).and_return(nil)
+      allow(prompt).to receive(:yes?).and_return(false)
       allow(File).to receive(:executable?).with('/managed/sdkmanager').and_return(true)
       allow(installer).to receive(:preflight!)
       allow(installer).to receive(:confirm_downloads!)
@@ -82,14 +83,14 @@ RSpec.describe Simu::AndroidInstaller do
   end
 
   describe 'provisioning Java runtime' do
-    it 'requests the current LTS Temurin JRE for setup only' do
+    it 'requests the current LTS Temurin JDK so Gradle builds are supported' do
       host = Simu::AndroidToolchain::Host.new(:macos, :arm64)
       installer = described_class.new(prompt: prompt, host: host, toolchain: toolchain)
 
       url = installer.send(:temurin_metadata_url)
 
       expect(url).to include('/assets/latest/25/')
-      expect(url).to include('image_type=jre')
+      expect(url).to include('image_type=jdk')
       expect(url).to include('architecture=aarch64')
     end
   end
