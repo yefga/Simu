@@ -26,67 +26,27 @@ module Simu
       end
       Simu::UI.doctor_success("Supported host detected: #{host.label}")
 
-      toolchain = Simu::AndroidToolchain.external
-      if toolchain
-        Simu::UI.doctor_success("Using existing Android SDK: #{toolchain.sdk_root || 'tools available in PATH'}")
-      elsif Simu::AndroidToolchain.managed.usable?
-        toolchain = Simu::AndroidToolchain.managed
-        Simu::UI.doctor_success("Using Simu-managed Android SDK: #{toolchain.sdk_root}")
-      else
+      toolchain = Simu::AndroidToolchain.resolve
+      unless toolchain
         Simu::UI.doctor_error('No runnable Android emulator and ADB installation was found.')
-        Simu::UI.info('Run `simu android setup` to install a private emulator environment without Android Studio.')
+        Simu::UI.info("Expected SDK location: #{Simu::AndroidToolchain.sdk_root}")
+        Simu::UI.info('Run `simu android setup` to install the emulator without Android Studio.')
         report_archive_tools
+        report_jdk
         return
       end
-
-      report_binary('Android Emulator', toolchain.emulator_bin)
-      report_binary('ADB', toolchain.adb_bin)
-      inspector = toolchain.apk_inspector_bin
-      if inspector
-        Simu::UI.doctor_success("APK inspection tool is available at #{inspector}")
-      else
-        Simu::UI.doctor_error('APK inspection tool (aapt) is missing; APK launch cannot determine its package name.')
-      end
-
-      avds = toolchain.avd_names
-      if avds.empty?
-        Simu::UI.doctor_error('No Android virtual devices are configured. Run `simu android setup` to create one.')
-      else
-        Simu::UI.doctor_success("Configured Android virtual devices: #{avds.join(', ')}")
-      end
-
-      accelerated, detail = toolchain.acceleration_status
-      if accelerated
-        Simu::UI.doctor_success("Emulator acceleration is available: #{detail}")
-      else
-        Simu::UI.doctor_error("Emulator acceleration could not be verified: #{detail}")
-      end
-
-      managed = Simu::AndroidToolchain.managed
-      if managed.jdk?
-        Simu::UI.doctor_success("Private JDK is available at #{managed.java_home} (Gradle builds supported)")
-      elsif managed.java_bin
-        Simu::UI.doctor_error('Managed Java is a JRE without javac; Gradle builds (npm run android, ' \
-                              'flutter run) will fail. Re-run `simu android setup`.')
-      else
-        Simu::UI.info('Java is not required to boot an existing emulator; setup installs')
-        Simu::UI.info('a private JDK when provisioning is needed.')
-      end
-
+      Simu::UI.doctor_success("Using Android SDK: #{toolchain.sdk_root}")
+      report_toolchain(toolchain)
+      report_jdk
       report_global_shell_integration
     end
 
-    desc 'env', 'Print shell exports for the managed Android SDK (for eval or non-zsh shells)'
+    desc 'env', 'Print shell exports for the Android SDK (for eval or non-zsh shells)'
     def env
-      toolchain = Simu::AndroidToolchain.managed
-      unless toolchain.usable?
-        Simu::UI.error('No Simu-managed Android SDK was found. Run `simu android setup` first.')
-      end
-
-      print Simu::AndroidShellEnv.env_file_contents(toolchain)
+      print Simu::AndroidShellEnv.export_script(Simu::AndroidToolchain.for_sdk)
     end
 
-    desc 'setup', 'Install a private Android emulator environment and create an emulator'
+    desc 'setup', 'Install the Android SDK and emulator globally, without Android Studio'
     def setup
       Simu::AndroidInstaller.new.setup!
     end
@@ -191,13 +151,49 @@ module Simu
 
     private
 
-    def report_global_shell_integration
-      env_file = Simu::AndroidShellEnv.env_file
-      if File.file?(env_file)
-        Simu::UI.doctor_success("Global shell environment is configured: #{env_file}")
+    def report_toolchain(toolchain)
+      report_binary('Android Emulator', toolchain.emulator_bin)
+      report_binary('ADB', toolchain.adb_bin)
+
+      inspector = toolchain.apk_inspector_bin
+      if inspector
+        Simu::UI.doctor_success("APK inspection tool is available at #{inspector}")
       else
-        Simu::UI.info('Global shell environment is not configured. Re-run `simu android setup` so')
-        Simu::UI.info('`npm run android` and `flutter run` can find this SDK, or run `simu android env`.')
+        Simu::UI.doctor_error('APK inspection tool (aapt) is missing; APK launch cannot determine its package name.')
+      end
+
+      avds = toolchain.avd_names
+      if avds.empty?
+        Simu::UI.doctor_error('No Android virtual devices are configured. Run `simu android setup` to create one.')
+      else
+        Simu::UI.doctor_success("Configured Android virtual devices: #{avds.join(', ')}")
+      end
+
+      accelerated, detail = toolchain.acceleration_status
+      if accelerated
+        Simu::UI.doctor_success("Emulator acceleration is available: #{detail}")
+      else
+        Simu::UI.doctor_error("Emulator acceleration could not be verified: #{detail}")
+      end
+    end
+
+    def report_jdk
+      home = Simu::AndroidToolchain.java_home
+      minimum = Simu::AndroidToolchain::MINIMUM_JDK_MAJOR
+      if home
+        Simu::UI.doctor_success("JDK #{minimum}+ is available at #{home} (Gradle builds supported)")
+      else
+        Simu::UI.doctor_error("No JDK #{minimum}+ was found; Gradle builds (npm run android, flutter run) " \
+                              'will fail. Install one, e.g. `brew install openjdk@21`.')
+      end
+    end
+
+    def report_global_shell_integration
+      if Simu::AndroidShellEnv.configured?
+        Simu::UI.doctor_success('Shell exposes the SDK (ANDROID_HOME set and adb on PATH).')
+      else
+        Simu::UI.info('Shell does not expose the SDK. Re-run `simu android setup`, or add')
+        Simu::UI.info('`eval "$(simu android env)"` so `npm run android` / `flutter run` find it.')
       end
     end
 

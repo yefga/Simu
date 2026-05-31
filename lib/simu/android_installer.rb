@@ -2,7 +2,6 @@
 
 require 'digest'
 require 'fileutils'
-require 'json'
 require 'net/http'
 require 'open3'
 require 'openssl'
@@ -10,7 +9,8 @@ require 'tmpdir'
 require 'uri'
 
 module Simu
-  # Installs a private Android SDK/runtime and creates a compatible virtual device.
+  # Installs the Android SDK into its canonical global location and creates a
+  # compatible virtual device, reusing the host JDK rather than bundling one.
   class AndroidInstaller
     class SetupError < StandardError; end
 
@@ -29,7 +29,7 @@ module Simu
     CORE_PACKAGES = ['emulator', 'platform-tools', PLATFORM_PACKAGE, BUILD_TOOLS_PACKAGE].freeze
 
     def initialize(prompt: Simu::UI.prompt, host: Simu::AndroidToolchain.host,
-                   toolchain: Simu::AndroidToolchain.managed)
+                   toolchain: Simu::AndroidToolchain.for_sdk)
       @prompt = prompt
       @host = host
       @toolchain = toolchain
@@ -37,17 +37,19 @@ module Simu
 
     def setup!
       ensure_supported_host!
+      ensure_jdk!
 
-      existing = Simu::AndroidToolchain.external
-      if existing
-        Simu::UI.success("A usable Android SDK is already available at #{existing.sdk_root || 'your PATH'}.")
-        return existing unless @prompt.yes?('Create a separate Simu-managed Android emulator setup anyway?')
+      if @toolchain.usable?
+        Simu::UI.success("An Android SDK with adb and the emulator already exists at #{@toolchain.sdk_root}.")
+        unless @prompt.yes?('Install/refresh Simu packages and create an emulator anyway?')
+          configure_global_shell!
+          return @toolchain
+        end
       end
 
       preflight!
-      confirm_downloads!
+      confirm_install!
       prepare_directories!
-      install_java! unless @toolchain.jdk?
       install_commandline_tools! unless File.executable?(@toolchain.sdkmanager_bin)
       accept_licenses!
       install_sdk_packages(*CORE_PACKAGES)
@@ -57,7 +59,7 @@ module Simu
       device = select_device_profile
       avd_name = create_or_reuse_avd(image, device)
 
-      fail_setup('Managed Android tooling could not be verified after installation.') unless @toolchain.usable?
+      fail_setup('Android tooling could not be verified after installation.') unless @toolchain.usable?
 
       accelerated, detail = @toolchain.acceleration_status
       if accelerated
@@ -74,6 +76,8 @@ module Simu
       Simu::UI.error(e.message)
     rescue StandardError => e
       Simu::UI.error("Android setup failed: #{e.message}")
+    ensure
+      FileUtils.rm_rf(@download_root) if @download_root
     end
 
     private
@@ -91,67 +95,38 @@ module Simu
       fail_setup("Required archive tools are missing: #{missing.join(', ')}.")
     end
 
-    def confirm_downloads!
-      Simu::UI.info("Simu will store Android tooling under #{Simu::AndroidToolchain.simu_home}/android.")
-      Simu::UI.info('Setup downloads a private Temurin 25 JDK, Android SDK tools, an emulator,')
-      Simu::UI.info('and a system image; allow several GB of disk space.')
+    def ensure_jdk!
+      home = @toolchain.java_home
+      return Simu::UI.success("Using existing JDK at #{home}.") if home
+
+      fail_setup("No JDK #{Simu::AndroidToolchain::MINIMUM_JDK_MAJOR}+ was found. Install one " \
+                 '(for example `brew install openjdk@21`) and set JAVA_HOME, then re-run `simu android setup`.')
+    end
+
+    def confirm_install!
+      Simu::UI.info("Simu will install the Android SDK into #{@toolchain.sdk_root}.")
+      Simu::UI.info('Setup downloads the SDK command-line tools, platform-tools, an emulator, build')
+      Simu::UI.info('tools, a platform, and a system image; allow several GB of disk space.')
       terms = 'Proceed and review/accept the Android SDK licenses during installation?'
       fail_setup('Setup cancelled.') unless @prompt.yes?(terms)
     end
 
     def prepare_directories!
-      [
-        @toolchain.sdk_root,
-        @toolchain.avd_home,
-        Simu::AndroidToolchain.managed_user_home,
-        Simu::AndroidToolchain.managed_runtime_root,
-        download_root
-      ].each { |directory| FileUtils.mkdir_p(directory) }
-    end
-
-    def install_java!
-      Simu::UI.info('Downloading private Eclipse Temurin JDK 25 for Android setup...')
-      metadata = fetch_json(temurin_metadata_url)
-      package = metadata.first&.dig('binary', 'package')
-      fail_setup('Could not obtain a compatible Eclipse Temurin JDK download.') unless package
-
-      archive = File.join(download_root, File.basename(URI(package.fetch('link')).path))
-      download_file(
-        package.fetch('link'),
-        archive,
-        package.fetch('checksum'),
-        label: 'Eclipse Temurin JDK 25'
-      )
-
-      stage = Dir.mktmpdir('java-', Simu::AndroidToolchain.managed_runtime_root)
-      unless system('tar', '-xzf', archive, '-C', stage, out: File::NULL, err: File::NULL)
-        fail_setup('Could not extract the private Java runtime.')
-      end
-
-      javac = Dir.glob(File.join(stage, '**', 'bin', 'javac')).find { |path| File.executable?(path) }
-      fail_setup('The downloaded Java runtime did not contain a JDK (javac is missing).') unless javac
-
-      current = File.join(Simu::AndroidToolchain.managed_runtime_root, 'current')
-      FileUtils.rm_rf(current)
-      FileUtils.mv(stage, current)
-      Simu::UI.success('Private JDK installed.')
-    ensure
-      FileUtils.rm_rf(stage) if stage && File.directory?(stage)
+      [@toolchain.sdk_root, @toolchain.avd_home, download_root].each { |directory| FileUtils.mkdir_p(directory) }
     end
 
     def configure_global_shell!
-      question = 'Make this SDK available to React Native/Flutter in your shell (updates ~/.zshrc)?'
+      question = 'Export this SDK to your shell so React Native/Flutter (npm run android, flutter run) find it?'
       return unless @prompt.yes?(question)
 
       updated = Simu::AndroidShellEnv.apply!(@toolchain)
-      Simu::UI.success("Wrote managed Android environment to #{Simu::AndroidShellEnv.env_file}.")
       if updated.empty?
-        Simu::UI.info('Your shell profile already references the managed Android environment.')
+        Simu::UI.info('Your shell profile already exports the Android SDK environment.')
       else
         Simu::UI.success("Updated shell profile(s): #{updated.join(', ')}.")
       end
-      Simu::UI.info('Restart your terminal (or `source` the profile) so `adb`, `emulator`, and')
-      Simu::UI.info('Gradle builds such as `npm run android` and `flutter run` can find this SDK.')
+      Simu::UI.info('Restart your terminal (or `source` the profile) so `adb`, `emulator`, and Gradle')
+      Simu::UI.info('builds pick up ANDROID_HOME and the SDK tools on PATH.')
     end
 
     def install_commandline_tools!
@@ -310,22 +285,8 @@ module Simu
       "simu_#{safe_device}_api_#{api}"
     end
 
-    def temurin_metadata_url
-      os = @host.os == :macos ? 'mac' : 'linux'
-      arch = @host.arch == :arm64 ? 'aarch64' : 'x64'
-      'https://api.adoptium.net/v3/assets/latest/25/hotspot' \
-        "?architecture=#{arch}&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=#{os}" \
-        '&project=jdk&vendor=eclipse'
-    end
-
     def download_root
-      File.join(Simu::AndroidToolchain.simu_home, 'android', 'downloads')
-    end
-
-    def fetch_json(url)
-      body = +''
-      with_http_response(url) { |response| response.read_body { |chunk| body << chunk } }
-      JSON.parse(body)
+      @download_root ||= Dir.mktmpdir('simu-android-')
     end
 
     def download_file(url, destination, expected_sha256, label:)
