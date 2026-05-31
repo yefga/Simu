@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = 'simu'
-  spec.version       = '0.4.1'
+  spec.version       = '0.4.2'
   spec.authors       = ['yefga']
   spec.email         = ['yefga@users.noreply.github.com']
   spec.summary       = 'CLI tool to manage Apple simulators and Android emulators.'
