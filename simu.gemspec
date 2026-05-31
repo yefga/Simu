@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.license       = 'MIT'
   spec.required_ruby_version = '>= 2.6.0'
 
-  spec.files         = Dir['lib/**/*', 'bin/*', 'LICENSE', 'README.md'].reject { |f| File.directory?(f) }
+  spec.files         = Dir['lib/**/*', 'bin/*', 'docs/**/*', 'LICENSE', 'README.md'].reject { |f| File.directory?(f) }
   spec.bindir        = 'bin'
   spec.executables   = ['simu']
   spec.require_paths = ['lib']
